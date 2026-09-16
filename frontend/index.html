@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Подруга</title>
+    <link rel="stylesheet" href="player.css" />
+</head>
+<body>
+    <div class="player" id="player">
+        <video id="videoPlayer" preload="metadata" playsinline webkit-playsinline></video>
+        <video id="insertPlayer" class="insert-player" preload="auto" playsinline webkit-playsinline></video>
+        <div id="overlay" class="overlay"></div>
+        <div id="conditionalOverlays" class="conditional-overlays"></div>
+        <div class="buffering" id="bufferingSpinner"></div>
+
+        <div id="choiceCountdown" class="choice-countdown hidden">
+            <svg viewBox="0 0 44 44" class="countdown-ring">
+                <circle cx="22" cy="22" r="19" class="ring-bg"></circle>
+                <circle cx="22" cy="22" r="19" class="ring-fg" id="countdownRing"></circle>
+            </svg>
+            <span class="countdown-number" id="countdownNumber">30</span>
+        </div>
+
+        <div class="controls" id="controls">
+            <div class="bottom-bar">
+                <div class="timeline" id="timeline">
+                    <div class="timeline-buffered" id="timelineBuffered"></div>
+                    <div class="timeline-progress" id="timelineProgress"></div>
+                    <div class="timeline-thumb" id="timelineThumb"></div>
+                </div>
+                <div class="buttons-row">
+                    <button class="ctrl-btn" id="playPauseBtn" title="Воспроизведение">
+                        <svg class="icon icon-play" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="6,4 20,12 6,20"/>
+                        </svg>
+                        <svg class="icon icon-pause" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="4" width="4" height="16" rx="1"/>
+                            <rect x="14" y="4" width="4" height="16" rx="1"/>
+                        </svg>
+                    </button>
+                    <div class="time-display">
+                        <span id="currentTime">0:00</span>
+                        <span class="sep">/</span>
+                        <span id="duration">0:00</span>
+                    </div>
+                    <div class="volume-block">
+                        <button class="ctrl-btn volume-high" id="volumeBtn" title="Громкость">
+                            <svg class="icon icon-vol-high" viewBox="0 0 24 24">
+                                <polygon points="3,9 7,9 12,4 12,20 7,15 3,15" fill="currentColor"/>
+                                <path d="M15.5 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <path d="M18 6a8 8 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <svg class="icon icon-vol-low" viewBox="0 0 24 24">
+                                <polygon points="3,9 7,9 12,4 12,20 7,15 3,15" fill="currentColor"/>
+                                <path d="M15.5 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            <svg class="icon icon-vol-mute" viewBox="0 0 24 24">
+                                <polygon points="3,9 7,9 12,4 12,20 7,15 3,15" fill="currentColor"/>
+                                <line x1="16" y1="8" x2="22" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <line x1="22" y1="8" x2="16" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                        <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1" />
+                    </div>
+                    <div class="spacer"></div>
+                    <button class="ctrl-btn" id="fullscreenBtn" title="На весь экран">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 9V4h5"/>
+                            <path d="M20 9V4h-5"/>
+                            <path d="M4 15v5h5"/>
+                            <path d="M20 15v5h-5"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="endMessage" class="end-message hidden">
+            <h2>Конец</h2>
+            <div class="end-buttons">
+                <button id="restartBtn">Посмотреть заново</button>
+            </div>
+        </div>
+    </div>
+    <script src="player.js"></script>
+</body>
+</html>
