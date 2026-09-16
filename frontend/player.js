@@ -14,6 +14,17 @@ if (window.visualViewport) {
 }
 
 // ============================================================
+//  УТИЛИТА: получить URL видео
+//  Если video — полная ссылка (http/https), используем её.
+//  Иначе — берём из локальной папки /uploads/
+// ============================================================
+function resolveVideoUrl(video) {
+    if (!video) return '';
+    if (/^https?:\/\//i.test(video)) return video;
+    return `/uploads/${video}`;
+}
+
+// ============================================================
 //  DOM
 // ============================================================
 const video = document.getElementById('videoPlayer');
@@ -145,7 +156,7 @@ async function loadScene(sceneId) {
         endMessage.classList.add('hidden');
 
         if (scene.video && scene.video.trim() !== '') {
-            video.src = `/uploads/${scene.video}`;
+            video.src = resolveVideoUrl(scene.video);
             video.load();
             video.play().catch(() => {
                 controls.classList.add('visible');
@@ -309,7 +320,6 @@ function onSceneEnded() {
         return;
     }
 
-    // Финальная сцена
     endMessage.classList.remove('hidden');
     clearProgress();
 }
@@ -319,7 +329,7 @@ function onSceneEnded() {
 // ============================================================
 function playInsert(videoFile, resumeAt) {
     return new Promise((resolve) => {
-        const src = `/uploads/${videoFile}`;
+        const src = resolveVideoUrl(videoFile);
         insertPlayer.src = src;
         insertPlayer.classList.add('active');
         insertPlayer.currentTime = 0;
@@ -404,7 +414,6 @@ function onActiveTimeUpdate() {
     currentTimeEl.textContent = formatTime(cur);
 
     if (!isInsertPlaying) {
-        // Триггер выбора
         if (sceneChoiceState.pauseAt != null
             && !sceneChoiceState.triggered
             && !sceneChoiceState.resolved
