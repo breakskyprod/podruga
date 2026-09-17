@@ -9,13 +9,13 @@
         {
           "id": "s01_perepiska",
           "type": "start",
-          "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s01_perepiska.mp4",
+          "video": "s01_perepiska.mp4",
           "next": "s02_sblijenie"
         },
         {
           "id": "s02_sblijenie",
           "type": "ordinary",
-          "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s02_sblijenie.mp4",
+          "video": "s02_sblijenie.mp4",
           "pause_at": 15,
           "choice_timeout": 30,
           "choices": [
@@ -23,24 +23,24 @@
               "id": "A",
               "label": "Хорошо. Давай никому не будем показывать",
               "area": { "x": 12, "y": 55, "width": 32, "height": 20, "time_start": 15, "time_end": 60 },
-              "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s02_A.mp4", "resume_at": 22 }
+              "after_choice": { "video": "s02_A.mp4", "resume_at": 22 }
             },
             {
               "id": "B",
               "label": "А почему это нужно скрывать?",
               "area": { "x": 56, "y": 55, "width": 32, "height": 20, "time_start": 15, "time_end": 60 },
-              "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s02_B.mp4", "resume_at": 22 }
+              "after_choice": { "video": "s02_B.mp4", "resume_at": 22 }
             }
           ],
           "no_choice": {
-            "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s02_NC.mp4", "resume_at": 22 }
+            "after_choice": { "video": "s02_NC.mp4", "resume_at": 22 }
           },
           "next": "s03_gruppa"
         },
         {
           "id": "s03_gruppa",
           "type": "ordinary",
-          "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s03_gruppa.mp4",
+          "video": "s03_gruppa.mp4",
           "pause_at": 15,
           "choice_timeout": 30,
           "choices": [
@@ -48,24 +48,24 @@
               "id": "A",
               "label": "Ладно. Я остаюсь",
               "area": { "x": 12, "y": 55, "width": 32, "height": 20, "time_start": 15, "time_end": 60 },
-              "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s03_A.mp4", "resume_at": 22 }
+              "after_choice": { "video": "s03_A.mp4", "resume_at": 22 }
             },
             {
               "id": "B",
               "label": "Мне это не нравится. Я выхожу",
               "area": { "x": 56, "y": 55, "width": 32, "height": 20, "time_start": 15, "time_end": 60 },
-              "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s03_B.mp4", "resume_at": 22 }
+              "after_choice": { "video": "s03_B.mp4", "resume_at": 22 }
             }
           ],
           "no_choice": {
-            "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s03_NC.mp4", "resume_at": 22 }
+            "after_choice": { "video": "s03_NC.mp4", "resume_at": 22 }
           },
           "next": "s04_verbovka"
         },
         {
           "id": "s04_verbovka",
           "type": "ordinary",
-          "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s04_verbovka.mp4",
+          "video": "s04_verbovka.mp4",
           "pause_at": 12,
           "choice_timeout": 30,
           "choices": [
@@ -73,24 +73,24 @@
               "id": "A",
               "label": "Что мне нужно сделать?",
               "area": { "x": 12, "y": 55, "width": 32, "height": 20, "time_start": 12, "time_end": 60 },
-              "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s04_A.mp4", "resume_at": 18 }
+              "after_choice": { "video": "s04_A.mp4", "resume_at": 18 }
             },
             {
               "id": "B",
               "label": "Нет. Я не буду участвовать в том, что от меня скрывают",
               "area": { "x": 56, "y": 55, "width": 32, "height": 20, "time_start": 12, "time_end": 60 },
-              "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s04_B.mp4", "resume_at": 18 }
+              "after_choice": { "video": "s04_B.mp4", "resume_at": 18 }
             }
           ],
           "no_choice": {
-            "after_choice": { "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s04_NC.mp4", "resume_at": 18 }
+            "after_choice": { "video": "s04_NC.mp4", "resume_at": 18 }
           },
           "next": "s05_final"
         },
         {
           "id": "s05_final",
           "type": "final",
-          "video": "https://github.com/breakskyprod/podruga/releases/download/v1.0.0/s05_final.mp4",
+          "video": "s05_final.mp4",
           "next": null
         }
       ]
