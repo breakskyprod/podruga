@@ -14,92 +14,31 @@ if (window.visualViewport) {
 }
 
 // ============================================================
-//  БЕЗОПАСНЫЙ PLAY (глушит AbortError)
+//  БЕЗОПАСНЫЙ PLAY
 // ============================================================
-function safePlay(videoEl) {
-    if (!videoEl) return;
+function safePlay(el) {
+    if (!el) return;
     try {
-        const p = videoEl.play();
+        const p = el.play();
         if (p && typeof p.catch === 'function') {
             p.catch(err => {
                 if (err && err.name !== 'AbortError') {
-                    console.warn('Ошибка воспроизведения:', err);
+                    console.warn('play() ошибка:', err);
                 }
             });
         }
     } catch (e) {
-        console.warn('play() выбросил исключение:', e);
+        console.warn('play() выбросил:', e);
     }
 }
 
 // ============================================================
-//  КАЧЕСТВО ВИДЕО
+//  РАЗРЕШЕНИЕ ПУТИ К ВИДЕО
 // ============================================================
-const QUALITY_LEVELS = [1080, 720, 480, 360, 144];
-const QUALITY_KEY = 'video_quality';
-
-let currentQuality = loadQualityPreference();
-
-function loadQualityPreference() {
-    try {
-        const raw = localStorage.getItem(QUALITY_KEY);
-        if (raw === 'auto') return 'auto';
-        const n = parseInt(raw, 10);
-        if (QUALITY_LEVELS.includes(n)) return n;
-        return 'auto';
-    } catch (e) { return 'auto'; }
-}
-
-function saveQualityPreference(q) {
-    try { localStorage.setItem(QUALITY_KEY, String(q)); } catch (e) {}
-}
-
-function autoQuality() {
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const et = conn && conn.effectiveType;
-    const ua = navigator.userAgent || '';
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
-    const isSmallScreen = window.innerWidth < 768;
-
-    if (et === 'slow-2g' || et === '2g') return 144;
-    if (et === '3g') return isMobile || isSmallScreen ? 360 : 480;
-    if (isMobile || isSmallScreen) return 720;
-    return 1080;
-}
-
-function effectiveQuality() {
-    return currentQuality === 'auto' ? autoQuality() : currentQuality;
-}
-
-function buildQualityChain(requested) {
-    const chain = [];
-    const startIdx = QUALITY_LEVELS.indexOf(requested);
-    if (startIdx === -1) {
-        return QUALITY_LEVELS.slice().concat(['base']);
-    }
-    for (let i = startIdx; i < QUALITY_LEVELS.length; i++) {
-        chain.push(QUALITY_LEVELS[i]);
-    }
-    chain.push('base');
-    return chain;
-}
-
-function buildVideoUrl(baseName, quality) {
-    if (!baseName) return '';
-    if (/^https?:\/\//i.test(baseName)) return baseName;
-    const stem = baseName.replace(/\.mp4$/i, '');
-    if (quality === 'base') return `/uploads/${baseName}`;
-    return `/uploads/${stem}_${quality}.mp4`;
-}
-
-function updateQualityLabel() {
-    const el = document.getElementById('qualityLabel');
-    if (!el) return;
-    if (currentQuality === 'auto') {
-        el.textContent = 'AUTO';
-    } else {
-        el.textContent = currentQuality + 'p';
-    }
+function resolveVideoUrl(video) {
+    if (!video) return '';
+    if (/^https?:\/\//i.test(video)) return video;
+    return `/uploads/${video}`;
 }
 
 // ============================================================
@@ -121,9 +60,6 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 const volumeBtn = document.getElementById('volumeBtn');
 const volumeSlider = document.getElementById('volumeSlider');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
-const qualityBtn = document.getElementById('qualityBtn');
-const qualityPopup = document.getElementById('qualityPopup');
-const qualityPopupList = document.getElementById('qualityPopupList');
 const choiceCountdownEl = document.getElementById('choiceCountdown');
 const countdownNumberEl = document.getElementById('countdownNumber');
 const countdownRingEl = document.getElementById('countdownRing');
@@ -153,7 +89,7 @@ const sceneChoiceState = {
 const STORAGE_KEY = 'podruga_progress';
 
 // ============================================================
-//  СОХРАНЕНИЕ
+//  СОХРАНЕНИЕ ПРОГРЕССА
 // ============================================================
 function saveProgress() {
     try {
@@ -219,53 +155,6 @@ function computeChoicePauseAt(scene) {
 }
 
 // ============================================================
-//  ЗАГРУЗКА ВИДЕО С ФОЛБЭКОМ ПО КАЧЕСТВУ
-// ============================================================
-function loadVideoWithFallback(baseName, opts = {}) {
-    const chain = buildQualityChain(effectiveQuality());
-    let index = 0;
-    let resolved = false;
-    const targetVideo = opts.isInsert ? insertPlayer : video;
-
-    if (!targetVideo) {
-        if (typeof opts.onAllFailed === 'function') opts.onAllFailed();
-        return;
-    }
-
-    function tryNext() {
-        if (index >= chain.length) {
-            console.warn('Не удалось загрузить ни одно качество для', baseName);
-            if (typeof opts.onAllFailed === 'function') opts.onAllFailed();
-            return;
-        }
-        const q = chain[index++];
-        const url = buildVideoUrl(baseName, q);
-        console.log(`[quality] ${baseName} → ${q} (${url})`);
-
-        targetVideo.src = url;
-        targetVideo.load();
-
-        const onError = () => {
-            targetVideo.removeEventListener('error', onError);
-            if (resolved) return;
-            console.warn(`[quality] ${q} не загрузилось, пробуем ниже`);
-            tryNext();
-        };
-        targetVideo.addEventListener('error', onError);
-
-        const onLoadedData = () => {
-            targetVideo.removeEventListener('error', onError);
-            targetVideo.removeEventListener('loadeddata', onLoadedData);
-            if (resolved) return;
-            resolved = true;
-            if (typeof opts.onSuccess === 'function') opts.onSuccess(q);
-        };
-        targetVideo.addEventListener('loadeddata', onLoadedData, { once: true });
-    }
-    tryNext();
-}
-
-// ============================================================
 //  ЗАГРУЗКА СЦЕНЫ
 // ============================================================
 async function loadScene(sceneId) {
@@ -280,15 +169,15 @@ async function loadScene(sceneId) {
         isAutoAdvancing = false;
         if (endMessage) endMessage.classList.add('hidden');
 
-        if (scene.video && scene.video.trim() !== '') {
-            loadVideoWithFallback(scene.video, {
-                isInsert: false,
-                onSuccess: () => {
-                    safePlay(video);
-                    if (controls) controls.classList.add('visible');
-                    if (player) player.classList.add('show-controls');
-                }
-            });
+        if (scene.video && scene.video.trim() !== '' && video) {
+            video.src = resolveVideoUrl(scene.video);
+            video.load();
+            video.oncanplay = () => {
+                video.oncanplay = null;
+                safePlay(video);
+                if (controls) controls.classList.add('visible');
+                if (player) player.classList.add('show-controls');
+            };
         } else if (video) {
             video.removeAttribute('src');
             video.load();
@@ -303,7 +192,7 @@ async function loadScene(sceneId) {
         lastTime = 0;
         saveProgress();
     } catch (err) {
-        console.error(err);
+        console.error('Ошибка загрузки сцены:', err);
     }
 }
 
@@ -339,7 +228,7 @@ function buildChoiceAreas(scene) {
 }
 
 // ============================================================
-//  ТРИГГЕР ВЫБОРА
+//  ТРИГГЕР ПАУЗЫ ДЛЯ ВЫБОРА
 // ============================================================
 function triggerChoicePause() {
     if (!currentScene || !currentScene.choices || sceneChoiceState.resolved) return;
@@ -376,7 +265,7 @@ function triggerChoicePause() {
 }
 
 // ============================================================
-//  ПРОИГРЫВАНИЕ ВСТАВКИ
+//  ВСТАВКА
 // ============================================================
 function playInsertOnly(videoFile) {
     return new Promise((resolve) => {
@@ -394,6 +283,7 @@ function playInsertOnly(videoFile) {
 
         if (video) video.pause();
         insertPlayer.classList.add('active');
+        insertPlayer.src = resolveVideoUrl(videoFile);
         insertPlayer.currentTime = 0;
 
         let resolved = false;
@@ -421,14 +311,13 @@ function playInsertOnly(videoFile) {
         insertPlayer.addEventListener('ended', onEnded);
         insertPlayer.addEventListener('error', onError);
 
-        loadVideoWithFallback(videoFile, {
-            isInsert: true,
-            onSuccess: () => {
-                safePlay(insertPlayer);
-            },
-            onAllFailed: () => onError()
-        });
+        insertPlayer.oncanplay = () => {
+            insertPlayer.oncanplay = null;
+            safePlay(insertPlayer);
+        };
+        insertPlayer.load();
 
+        // Страховка на 5 секунд
         setTimeout(() => {
             if (!resolved && insertPlayer.readyState < 2) {
                 console.warn('Вставка не готова за 5 секунд, пропускаем');
@@ -602,8 +491,13 @@ function onActivePause() {
 function showBuffering() { if (bufferingSpinner) bufferingSpinner.classList.add('visible'); }
 function hideBuffering() { if (bufferingSpinner) bufferingSpinner.classList.remove('visible'); }
 
-function bindBufferingEvents(v) {
+function bindVideoEvents(v) {
     if (!v) return;
+    v.addEventListener('timeupdate', onActiveTimeUpdate);
+    v.addEventListener('loadedmetadata', onActiveLoadedMetadata);
+    v.addEventListener('progress', onActiveProgress);
+    v.addEventListener('play', onActivePlay);
+    v.addEventListener('pause', onActivePause);
     v.addEventListener('waiting', showBuffering);
     v.addEventListener('stalled', showBuffering);
     v.addEventListener('playing', hideBuffering);
@@ -612,24 +506,10 @@ function bindBufferingEvents(v) {
     v.addEventListener('error', hideBuffering);
 }
 
-if (video) {
-    video.addEventListener('timeupdate', onActiveTimeUpdate);
-    video.addEventListener('loadedmetadata', onActiveLoadedMetadata);
-    video.addEventListener('progress', onActiveProgress);
-    video.addEventListener('play', onActivePlay);
-    video.addEventListener('pause', onActivePause);
-    video.addEventListener('ended', onSceneEnded);
-    bindBufferingEvents(video);
-}
+bindVideoEvents(video);
+bindVideoEvents(insertPlayer);
 
-if (insertPlayer) {
-    insertPlayer.addEventListener('timeupdate', onActiveTimeUpdate);
-    insertPlayer.addEventListener('loadedmetadata', onActiveLoadedMetadata);
-    insertPlayer.addEventListener('progress', onActiveProgress);
-    insertPlayer.addEventListener('play', onActivePlay);
-    insertPlayer.addEventListener('pause', onActivePause);
-    bindBufferingEvents(insertPlayer);
-}
+if (video) video.addEventListener('ended', onSceneEnded);
 
 // ============================================================
 //  PLAY / PAUSE
@@ -697,81 +577,6 @@ function updateVolumeIcon() {
     else volumeBtn.classList.add('volume-high');
 }
 updateVolumeIcon();
-
-// ============================================================
-//  КАЧЕСТВО
-// ============================================================
-function buildQualityPopup() {
-    if (!qualityPopupList) return;
-    qualityPopupList.innerHTML = '';
-    const items = [
-        { value: 'auto', label: 'Авто', badge: currentQuality === 'auto' ? `${autoQuality()}p` : null },
-        { value: 1080, label: '1080p', badge: 'Full HD' },
-        { value: 720,  label: '720p',  badge: 'HD' },
-        { value: 480,  label: '480p',  badge: null },
-        { value: 360,  label: '360p',  badge: null },
-        { value: 144,  label: '144p',  badge: 'Эконом' }
-    ];
-    items.forEach(it => {
-        const div = document.createElement('div');
-        div.className = 'quality-item' + (currentQuality === it.value ? ' active' : '');
-        div.dataset.value = it.value;
-        div.innerHTML = `
-            <span>${it.label}</span>
-            ${it.badge ? `<span class="q-badge">${it.badge}</span>` : ''}
-        `;
-        div.addEventListener('click', () => {
-            setQuality(it.value);
-            if (qualityPopup) qualityPopup.classList.add('hidden');
-        });
-        qualityPopupList.appendChild(div);
-    });
-}
-
-function setQuality(q) {
-    currentQuality = q;
-    saveQualityPreference(q);
-    updateQualityLabel();
-    buildQualityPopup();
-
-    if (currentScene && currentScene.video && video) {
-        const time = video.currentTime;
-        const wasPlaying = !video.paused && !sceneChoiceState.triggered;
-        loadVideoWithFallback(currentScene.video, {
-            isInsert: false,
-            onSuccess: () => {
-                if (video) {
-                    video.currentTime = time;
-                    if (wasPlaying) safePlay(video);
-                }
-            }
-        });
-    }
-}
-
-if (qualityBtn && qualityPopup) {
-    qualityBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        buildQualityPopup();
-        qualityPopup.classList.toggle('hidden');
-        showControls();
-    });
-}
-
-document.addEventListener('click', (e) => {
-    if (qualityPopup && !qualityPopup.classList.contains('hidden') &&
-        !qualityPopup.contains(e.target) &&
-        qualityBtn && !qualityBtn.contains(e.target)) {
-        qualityPopup.classList.add('hidden');
-    }
-});
-
-if (navigator.connection) {
-    navigator.connection.addEventListener('change', () => {
-        if (currentQuality === 'auto') updateQualityLabel();
-    });
-}
-updateQualityLabel();
 
 // ============================================================
 //  FULLSCREEN
@@ -847,18 +652,12 @@ document.addEventListener('keydown', (e) => {
             break;
         case 'ArrowRight':
             if (sceneChoiceState.triggered && !sceneChoiceState.resolved) return;
-            {
-                const v = getActiveVideo();
-                if (v) v.currentTime += 5;
-            }
+            { const v = getActiveVideo(); if (v) v.currentTime += 5; }
             showControls();
             break;
         case 'ArrowLeft':
             if (sceneChoiceState.triggered && !sceneChoiceState.resolved) return;
-            {
-                const v = getActiveVideo();
-                if (v) v.currentTime -= 5;
-            }
+            { const v = getActiveVideo(); if (v) v.currentTime -= 5; }
             showControls();
             break;
         case 'KeyF':
