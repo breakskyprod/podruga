@@ -29,7 +29,7 @@
               "id": "B",
               "label": "А почему это нужно скрывать?",
               "area": { "x": 56, "y": 55, "width": 32, "height": 20, "time_start": 15, "time_end": 60 },
-              "after_choice": { "video": "s02_B.mp4" 22 }
+              "after_choice": { "video": "s02_B.mp4" }
             }
           ],
           "no_choice": {
