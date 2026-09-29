@@ -14,6 +14,25 @@ if (window.visualViewport) {
 }
 
 // ============================================================
+//  БЕЗОПАСНЫЙ PLAY (глушит AbortError)
+// ============================================================
+function safePlay(videoEl) {
+    if (!videoEl) return;
+    try {
+        const p = videoEl.play();
+        if (p && typeof p.catch === 'function') {
+            p.catch(err => {
+                if (err && err.name !== 'AbortError') {
+                    console.warn('Ошибка воспроизведения:', err);
+                }
+            });
+        }
+    } catch (e) {
+        console.warn('play() выбросил исключение:', e);
+    }
+}
+
+// ============================================================
 //  КАЧЕСТВО ВИДЕО
 // ============================================================
 const QUALITY_LEVELS = [1080, 720, 480, 360, 144];
@@ -89,7 +108,6 @@ function updateQualityLabel() {
 const video = document.getElementById('videoPlayer');
 const insertPlayer = document.getElementById('insertPlayer');
 const overlay = document.getElementById('overlay');
-const conditionalOverlaysEl = document.getElementById('conditionalOverlays');
 const controls = document.getElementById('controls');
 const player = document.getElementById('player');
 const endMessage = document.getElementById('endMessage');
@@ -209,6 +227,11 @@ function loadVideoWithFallback(baseName, opts = {}) {
     let resolved = false;
     const targetVideo = opts.isInsert ? insertPlayer : video;
 
+    if (!targetVideo) {
+        if (typeof opts.onAllFailed === 'function') opts.onAllFailed();
+        return;
+    }
+
     function tryNext() {
         if (index >= chain.length) {
             console.warn('Не удалось загрузить ни одно качество для', baseName);
@@ -255,19 +278,18 @@ async function loadScene(sceneId) {
         currentSceneId = scene.id;
         currentScene = scene;
         isAutoAdvancing = false;
-        endMessage.classList.add('hidden');
+        if (endMessage) endMessage.classList.add('hidden');
 
         if (scene.video && scene.video.trim() !== '') {
             loadVideoWithFallback(scene.video, {
                 isInsert: false,
                 onSuccess: () => {
-                    video.play().catch(() => {
-                        controls.classList.add('visible');
-                        player.classList.add('show-controls');
-                    });
+                    safePlay(video);
+                    if (controls) controls.classList.add('visible');
+                    if (player) player.classList.add('show-controls');
                 }
             });
-        } else {
+        } else if (video) {
             video.removeAttribute('src');
             video.load();
         }
@@ -278,7 +300,6 @@ async function loadScene(sceneId) {
             ? scene.choice_timeout
             : 30;
 
-        conditionalOverlaysEl.innerHTML = '';
         lastTime = 0;
         saveProgress();
     } catch (err) {
@@ -287,6 +308,7 @@ async function loadScene(sceneId) {
 }
 
 function buildChoiceAreas(scene) {
+    if (!overlay) return;
     overlay.innerHTML = '';
     if (!scene.choices) return;
 
@@ -323,23 +345,29 @@ function triggerChoicePause() {
     if (!currentScene || !currentScene.choices || sceneChoiceState.resolved) return;
     sceneChoiceState.triggered = true;
 
-    video.pause();
-    overlay.querySelectorAll('.area').forEach(el => el.style.display = 'flex');
+    if (video) video.pause();
+    if (overlay) {
+        overlay.querySelectorAll('.area').forEach(el => el.style.display = 'flex');
+    }
 
     const timeout = sceneChoiceState.timeoutDuration;
     sceneChoiceState.timeoutAt = Date.now() + timeout * 1000;
 
-    choiceCountdownEl.classList.remove('hidden');
-    countdownNumberEl.textContent = timeout;
+    if (choiceCountdownEl) choiceCountdownEl.classList.remove('hidden');
+    if (countdownNumberEl) countdownNumberEl.textContent = timeout;
     const circumference = 2 * Math.PI * 19;
-    countdownRingEl.style.strokeDasharray = circumference;
-    countdownRingEl.style.strokeDashoffset = 0;
+    if (countdownRingEl) {
+        countdownRingEl.style.strokeDasharray = circumference;
+        countdownRingEl.style.strokeDashoffset = 0;
+    }
 
     sceneChoiceState.countdownId = setInterval(() => {
         const remaining = Math.max(0, (sceneChoiceState.timeoutAt - Date.now()) / 1000);
-        countdownNumberEl.textContent = Math.ceil(remaining);
+        if (countdownNumberEl) countdownNumberEl.textContent = Math.ceil(remaining);
         const ratio = remaining / timeout;
-        countdownRingEl.style.strokeDashoffset = circumference * (1 - ratio);
+        if (countdownRingEl) {
+            countdownRingEl.style.strokeDashoffset = circumference * (1 - ratio);
+        }
     }, 100);
 
     sceneChoiceState.timeoutId = setTimeout(() => {
@@ -348,19 +376,23 @@ function triggerChoicePause() {
 }
 
 // ============================================================
-//  ПРОИГРЫВАНИЕ ВСТАВКИ (без resume — просто "доиграть и resolve")
+//  ПРОИГРЫВАНИЕ ВСТАВКИ
 // ============================================================
 function playInsertOnly(videoFile) {
     return new Promise((resolve) => {
+        if (!insertPlayer) {
+            resolve();
+            return;
+        }
         isInsertPlaying = true;
-        playPauseBtn.classList.add('playing');
-        currentTimeEl.textContent = '0:00';
-        durationEl.textContent = '0:00';
-        timelineProgress.style.width = '0%';
-        timelineThumb.style.left = '0%';
-        timelineBuffered.style.width = '0%';
+        if (playPauseBtn) playPauseBtn.classList.add('playing');
+        if (currentTimeEl) currentTimeEl.textContent = '0:00';
+        if (durationEl) durationEl.textContent = '0:00';
+        if (timelineProgress) timelineProgress.style.width = '0%';
+        if (timelineThumb) timelineThumb.style.left = '0%';
+        if (timelineBuffered) timelineBuffered.style.width = '0%';
 
-        video.pause();
+        if (video) video.pause();
         insertPlayer.classList.add('active');
         insertPlayer.currentTime = 0;
 
@@ -376,7 +408,7 @@ function playInsertOnly(videoFile) {
             insertPlayer.load();
 
             isInsertPlaying = false;
-            playPauseBtn.classList.remove('playing');
+            if (playPauseBtn) playPauseBtn.classList.remove('playing');
             resolve();
         };
 
@@ -392,10 +424,7 @@ function playInsertOnly(videoFile) {
         loadVideoWithFallback(videoFile, {
             isInsert: true,
             onSuccess: () => {
-                insertPlayer.play().catch(() => {
-                    insertPlayer.muted = true;
-                    insertPlayer.play().catch(() => onError());
-                });
+                safePlay(insertPlayer);
             },
             onAllFailed: () => onError()
         });
@@ -411,31 +440,28 @@ function playInsertOnly(videoFile) {
 
 // ============================================================
 //  ЛОГИКА ПОСЛЕ ВСТАВКИ
-//  Если resume_at задан — возвращаемся в текущую сцену.
-//  Если нет — идём в next (свой или сцены).
 // ============================================================
 async function continueAfterInsert(afterChoice, fallbackNext) {
     if (afterChoice.resume_at != null) {
-        // Возврат в текущую сцену
-        const dur = video.duration || 0;
+        const dur = (video && video.duration) || 0;
         if (dur > 0 && afterChoice.resume_at >= dur - 0.5) {
-            video.currentTime = dur - 0.1;
+            if (video) video.currentTime = dur - 0.1;
             setTimeout(() => onSceneEnded(), 150);
             return;
         }
-        video.currentTime = Math.min(afterChoice.resume_at, dur > 0 ? dur - 0.1 : afterChoice.resume_at);
-        video.play().catch(() => {});
+        if (video) {
+            video.currentTime = Math.min(afterChoice.resume_at, dur > 0 ? dur - 0.1 : afterChoice.resume_at);
+            safePlay(video);
+        }
         showControls();
         return;
     }
 
-    // Прямой переход в следующую сцену
     if (fallbackNext) {
         await loadScene(fallbackNext);
         return;
     }
 
-    // Если next нигде не задан — считаем сцену завершённой
     onSceneEnded();
 }
 
@@ -452,10 +478,11 @@ async function handleChoice(choice) {
         clearInterval(sceneChoiceState.countdownId);
         sceneChoiceState.countdownId = null;
     }
-    choiceCountdownEl.classList.add('hidden');
-    overlay.querySelectorAll('.area').forEach(el => el.style.display = 'none');
+    if (choiceCountdownEl) choiceCountdownEl.classList.add('hidden');
+    if (overlay) {
+        overlay.querySelectorAll('.area').forEach(el => el.style.display = 'none');
+    }
 
-    // Определяем, куда идти
     const nextAfterInsert = choice.next || (currentScene && currentScene.next) || null;
 
     if (choice.after_choice && choice.after_choice.video) {
@@ -463,11 +490,11 @@ async function handleChoice(choice) {
         await continueAfterInsert(choice.after_choice, nextAfterInsert);
     } else if (choice.next) {
         await loadScene(choice.next);
-    } else if (choice.resume_at != null) {
+    } else if (choice.resume_at != null && video) {
         video.currentTime = choice.resume_at;
-        video.play();
-    } else {
-        video.play();
+        safePlay(video);
+    } else if (video) {
+        safePlay(video);
     }
 }
 
@@ -482,8 +509,10 @@ async function handleNoChoice() {
         clearInterval(sceneChoiceState.countdownId);
         sceneChoiceState.countdownId = null;
     }
-    choiceCountdownEl.classList.add('hidden');
-    overlay.querySelectorAll('.area').forEach(el => el.style.display = 'none');
+    if (choiceCountdownEl) choiceCountdownEl.classList.add('hidden');
+    if (overlay) {
+        overlay.querySelectorAll('.area').forEach(el => el.style.display = 'none');
+    }
 
     const nc = (currentScene && currentScene.no_choice) || {};
     const nextAfterInsert = nc.next || (currentScene && currentScene.next) || null;
@@ -493,11 +522,11 @@ async function handleNoChoice() {
         await continueAfterInsert(nc.after_choice, nextAfterInsert);
     } else if (nc.next) {
         await loadScene(nc.next);
-    } else if (nc.resume_at != null) {
+    } else if (nc.resume_at != null && video) {
         video.currentTime = nc.resume_at;
-        video.play();
-    } else {
-        video.play();
+        safePlay(video);
+    } else if (video) {
+        safePlay(video);
     }
 }
 
@@ -515,30 +544,8 @@ function onSceneEnded() {
         return;
     }
 
-    endMessage.classList.remove('hidden');
+    if (endMessage) endMessage.classList.remove('hidden');
     clearProgress();
-}
-
-// ============================================================
-//  УСЛОВНЫЕ ОВЕРЛЕИ
-// ============================================================
-function updateConditionalOverlays(cur) {
-    if (!currentScene || !currentScene.conditional_overlays) return;
-    currentScene.conditional_overlays.forEach((ov, idx) => {
-        const start = ov.at_time || 0;
-        const end = start + (ov.duration || 3);
-        const inWindow = cur >= start && cur <= end;
-        let el = conditionalOverlaysEl.querySelector(`[data-ov-idx="${idx}"]`);
-        if (inWindow && !el) {
-            el = document.createElement('div');
-            el.className = 'cond-overlay type-' + (ov.type || 'text');
-            el.dataset.ovIdx = idx;
-            el.textContent = ov.text || '';
-            conditionalOverlaysEl.appendChild(el);
-        } else if (!inWindow && el) {
-            el.remove();
-        }
-    });
 }
 
 // ============================================================
@@ -546,15 +553,16 @@ function updateConditionalOverlays(cur) {
 // ============================================================
 function onActiveTimeUpdate() {
     const v = getActiveVideo();
+    if (!v) return;
     const cur = v.currentTime;
     const dur = v.duration || 0;
 
     if (dur > 0) {
         const percent = (cur / dur) * 100;
-        timelineProgress.style.width = percent + '%';
-        timelineThumb.style.left = percent + '%';
+        if (timelineProgress) timelineProgress.style.width = percent + '%';
+        if (timelineThumb) timelineThumb.style.left = percent + '%';
     }
-    currentTimeEl.textContent = formatTime(cur);
+    if (currentTimeEl) currentTimeEl.textContent = formatTime(cur);
 
     if (!isInsertPlaying) {
         if (sceneChoiceState.pauseAt != null
@@ -564,32 +572,38 @@ function onActiveTimeUpdate() {
             && cur >= sceneChoiceState.pauseAt) {
             triggerChoicePause();
         }
-        if (!sceneChoiceState.resolved) {
-            updateConditionalOverlays(cur);
-        }
         lastTime = cur;
     }
 }
 
 function onActiveLoadedMetadata() {
-    durationEl.textContent = formatTime(getActiveVideo().duration);
+    const v = getActiveVideo();
+    if (v && durationEl) durationEl.textContent = formatTime(v.duration);
 }
 
 function onActiveProgress() {
     const v = getActiveVideo();
-    if (v.buffered.length > 0 && v.duration) {
+    if (!v) return;
+    if (v.buffered.length > 0 && v.duration && timelineBuffered) {
         const bufferedEnd = v.buffered.end(v.buffered.length - 1);
         timelineBuffered.style.width = ((bufferedEnd / v.duration) * 100) + '%';
     }
 }
 
-function onActivePlay() { playPauseBtn.classList.add('playing'); showControls(); }
-function onActivePause() { playPauseBtn.classList.remove('playing'); showControls(); }
+function onActivePlay() {
+    if (playPauseBtn) playPauseBtn.classList.add('playing');
+    showControls();
+}
+function onActivePause() {
+    if (playPauseBtn) playPauseBtn.classList.remove('playing');
+    showControls();
+}
 
-function showBuffering() { bufferingSpinner.classList.add('visible'); }
-function hideBuffering() { bufferingSpinner.classList.remove('visible'); }
+function showBuffering() { if (bufferingSpinner) bufferingSpinner.classList.add('visible'); }
+function hideBuffering() { if (bufferingSpinner) bufferingSpinner.classList.remove('visible'); }
 
 function bindBufferingEvents(v) {
+    if (!v) return;
     v.addEventListener('waiting', showBuffering);
     v.addEventListener('stalled', showBuffering);
     v.addEventListener('playing', hideBuffering);
@@ -598,20 +612,24 @@ function bindBufferingEvents(v) {
     v.addEventListener('error', hideBuffering);
 }
 
-video.addEventListener('timeupdate', onActiveTimeUpdate);
-video.addEventListener('loadedmetadata', onActiveLoadedMetadata);
-video.addEventListener('progress', onActiveProgress);
-video.addEventListener('play', onActivePlay);
-video.addEventListener('pause', onActivePause);
-video.addEventListener('ended', onSceneEnded);
-bindBufferingEvents(video);
+if (video) {
+    video.addEventListener('timeupdate', onActiveTimeUpdate);
+    video.addEventListener('loadedmetadata', onActiveLoadedMetadata);
+    video.addEventListener('progress', onActiveProgress);
+    video.addEventListener('play', onActivePlay);
+    video.addEventListener('pause', onActivePause);
+    video.addEventListener('ended', onSceneEnded);
+    bindBufferingEvents(video);
+}
 
-insertPlayer.addEventListener('timeupdate', onActiveTimeUpdate);
-insertPlayer.addEventListener('loadedmetadata', onActiveLoadedMetadata);
-insertPlayer.addEventListener('progress', onActiveProgress);
-insertPlayer.addEventListener('play', onActivePlay);
-insertPlayer.addEventListener('pause', onActivePause);
-bindBufferingEvents(insertPlayer);
+if (insertPlayer) {
+    insertPlayer.addEventListener('timeupdate', onActiveTimeUpdate);
+    insertPlayer.addEventListener('loadedmetadata', onActiveLoadedMetadata);
+    insertPlayer.addEventListener('progress', onActiveProgress);
+    insertPlayer.addEventListener('play', onActivePlay);
+    insertPlayer.addEventListener('pause', onActivePause);
+    bindBufferingEvents(insertPlayer);
+}
 
 // ============================================================
 //  PLAY / PAUSE
@@ -619,48 +637,60 @@ bindBufferingEvents(insertPlayer);
 function togglePlay() {
     if (sceneChoiceState.triggered && !sceneChoiceState.resolved) return;
     const v = getActiveVideo();
-    if (v.paused) v.play();
+    if (!v) return;
+    if (v.paused) safePlay(v);
     else v.pause();
 }
-playPauseBtn.addEventListener('click', togglePlay);
-video.addEventListener('click', togglePlay);
-insertPlayer.addEventListener('click', togglePlay);
+if (playPauseBtn) playPauseBtn.addEventListener('click', togglePlay);
+if (video) video.addEventListener('click', togglePlay);
+if (insertPlayer) insertPlayer.addEventListener('click', togglePlay);
 
 // ============================================================
 //  ТАЙМЛАЙН
 // ============================================================
 function seekFromEvent(e) {
     if (sceneChoiceState.triggered && !sceneChoiceState.resolved) return;
+    if (!timeline) return;
     const rect = timeline.getBoundingClientRect();
     const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? 0);
     let x = clientX - rect.left;
     x = Math.max(0, Math.min(x, rect.width));
     const v = getActiveVideo();
-    if (v.duration) v.currentTime = (x / rect.width) * v.duration;
+    if (v && v.duration) v.currentTime = (x / rect.width) * v.duration;
 }
-timeline.addEventListener('mousedown', (e) => { isDraggingTimeline = true; seekFromEvent(e); });
+if (timeline) {
+    timeline.addEventListener('mousedown', (e) => { isDraggingTimeline = true; seekFromEvent(e); });
+    timeline.addEventListener('touchstart', (e) => { isDraggingTimeline = true; seekFromEvent(e); }, { passive: true });
+}
 document.addEventListener('mousemove', (e) => { if (isDraggingTimeline) seekFromEvent(e); });
 document.addEventListener('mouseup', () => { isDraggingTimeline = false; });
-timeline.addEventListener('touchstart', (e) => { isDraggingTimeline = true; seekFromEvent(e); }, { passive: true });
 document.addEventListener('touchmove', (e) => { if (isDraggingTimeline) seekFromEvent(e); }, { passive: true });
 document.addEventListener('touchend', () => { isDraggingTimeline = false; });
 
 // ============================================================
 //  ГРОМКОСТЬ
 // ============================================================
-volumeSlider.addEventListener('input', (e) => {
-    const v = getActiveVideo();
-    v.volume = parseFloat(e.target.value);
-    v.muted = v.volume === 0;
-    updateVolumeIcon();
-});
-volumeBtn.addEventListener('click', () => {
-    const v = getActiveVideo();
-    v.muted = !v.muted;
-    updateVolumeIcon();
-});
+if (volumeSlider) {
+    volumeSlider.addEventListener('input', (e) => {
+        const v = getActiveVideo();
+        if (!v) return;
+        v.volume = parseFloat(e.target.value);
+        v.muted = v.volume === 0;
+        updateVolumeIcon();
+    });
+}
+if (volumeBtn) {
+    volumeBtn.addEventListener('click', () => {
+        const v = getActiveVideo();
+        if (!v) return;
+        v.muted = !v.muted;
+        updateVolumeIcon();
+    });
+}
 function updateVolumeIcon() {
+    if (!volumeBtn) return;
     const v = getActiveVideo();
+    if (!v) return;
     volumeBtn.classList.remove('volume-high', 'volume-low', 'volume-mute');
     if (v.muted || v.volume === 0) volumeBtn.classList.add('volume-mute');
     else if (v.volume < 0.5) volumeBtn.classList.add('volume-low');
@@ -672,6 +702,7 @@ updateVolumeIcon();
 //  КАЧЕСТВО
 // ============================================================
 function buildQualityPopup() {
+    if (!qualityPopupList) return;
     qualityPopupList.innerHTML = '';
     const items = [
         { value: 'auto', label: 'Авто', badge: currentQuality === 'auto' ? `${autoQuality()}p` : null },
@@ -691,7 +722,7 @@ function buildQualityPopup() {
         `;
         div.addEventListener('click', () => {
             setQuality(it.value);
-            qualityPopup.classList.add('hidden');
+            if (qualityPopup) qualityPopup.classList.add('hidden');
         });
         qualityPopupList.appendChild(div);
     });
@@ -703,30 +734,34 @@ function setQuality(q) {
     updateQualityLabel();
     buildQualityPopup();
 
-    if (currentScene && currentScene.video) {
+    if (currentScene && currentScene.video && video) {
         const time = video.currentTime;
         const wasPlaying = !video.paused && !sceneChoiceState.triggered;
         loadVideoWithFallback(currentScene.video, {
             isInsert: false,
             onSuccess: () => {
-                video.currentTime = time;
-                if (wasPlaying) video.play().catch(() => {});
+                if (video) {
+                    video.currentTime = time;
+                    if (wasPlaying) safePlay(video);
+                }
             }
         });
     }
 }
 
-qualityBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    buildQualityPopup();
-    qualityPopup.classList.toggle('hidden');
-    showControls();
-});
+if (qualityBtn && qualityPopup) {
+    qualityBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        buildQualityPopup();
+        qualityPopup.classList.toggle('hidden');
+        showControls();
+    });
+}
 
 document.addEventListener('click', (e) => {
-    if (!qualityPopup.classList.contains('hidden') &&
+    if (qualityPopup && !qualityPopup.classList.contains('hidden') &&
         !qualityPopup.contains(e.target) &&
-        !qualityBtn.contains(e.target)) {
+        qualityBtn && !qualityBtn.contains(e.target)) {
         qualityPopup.classList.add('hidden');
     }
 });
@@ -741,26 +776,30 @@ updateQualityLabel();
 // ============================================================
 //  FULLSCREEN
 // ============================================================
-fullscreenBtn.addEventListener('click', () => {
-    if (video.webkitEnterFullscreen && !document.fullscreenEnabled) {
-        video.webkitEnterFullscreen();
-        return;
-    }
-    if (!document.fullscreenElement) {
-        player.requestFullscreen().catch(err => console.log(err));
-    } else {
-        document.exitFullscreen();
-    }
-});
+if (fullscreenBtn) {
+    fullscreenBtn.addEventListener('click', () => {
+        if (video && video.webkitEnterFullscreen && !document.fullscreenEnabled) {
+            video.webkitEnterFullscreen();
+            return;
+        }
+        if (!document.fullscreenElement) {
+            if (player) player.requestFullscreen().catch(err => console.log(err));
+        } else {
+            document.exitFullscreen();
+        }
+    });
+}
 
 // ============================================================
 //  ПОКАЗ/СКРЫТИЕ ПАНЕЛИ
 // ============================================================
 function showControls() {
+    if (!controls || !player) return;
     controls.classList.add('visible');
     player.classList.add('show-controls');
     clearTimeout(hideControlsTimeout);
     const v = getActiveVideo();
+    if (!v) return;
     const keepVisible = sceneChoiceState.triggered && !sceneChoiceState.resolved;
     if (!v.paused || keepVisible) {
         if (!keepVisible) {
@@ -771,24 +810,29 @@ function showControls() {
         }
     }
 }
-player.addEventListener('mousemove', showControls);
-player.addEventListener('mouseleave', () => {
-    const keepVisible = sceneChoiceState.triggered && !sceneChoiceState.resolved;
-    if (keepVisible) return;
-    const v = getActiveVideo();
-    if (!v.paused) {
-        controls.classList.remove('visible');
-        player.classList.remove('show-controls');
-    }
-});
+if (player) {
+    player.addEventListener('mousemove', showControls);
+    player.addEventListener('mouseleave', () => {
+        const keepVisible = sceneChoiceState.triggered && !sceneChoiceState.resolved;
+        if (keepVisible) return;
+        const v = getActiveVideo();
+        if (v && !v.paused) {
+            if (controls) controls.classList.remove('visible');
+            if (player) player.classList.remove('show-controls');
+        }
+    });
+}
 
 // ============================================================
 //  РЕСТАРТ
 // ============================================================
-document.getElementById('restartBtn').addEventListener('click', () => {
-    clearProgress();
-    loadScene('s01_perepiska');
-});
+const restartBtn = document.getElementById('restartBtn');
+if (restartBtn) {
+    restartBtn.addEventListener('click', () => {
+        clearProgress();
+        loadScene('s01_perepiska');
+    });
+}
 
 // ============================================================
 //  КЛАВИАТУРА
@@ -803,15 +847,23 @@ document.addEventListener('keydown', (e) => {
             break;
         case 'ArrowRight':
             if (sceneChoiceState.triggered && !sceneChoiceState.resolved) return;
-            getActiveVideo().currentTime += 5;
+            {
+                const v = getActiveVideo();
+                if (v) v.currentTime += 5;
+            }
             showControls();
             break;
         case 'ArrowLeft':
             if (sceneChoiceState.triggered && !sceneChoiceState.resolved) return;
-            getActiveVideo().currentTime -= 5;
+            {
+                const v = getActiveVideo();
+                if (v) v.currentTime -= 5;
+            }
             showControls();
             break;
-        case 'KeyF': fullscreenBtn.click(); break;
+        case 'KeyF':
+            if (fullscreenBtn) fullscreenBtn.click();
+            break;
     }
 });
 
