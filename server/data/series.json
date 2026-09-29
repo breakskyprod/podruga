@@ -66,7 +66,7 @@
           "id": "s04_verbovka",
           "type": "ordinary",
           "video": "s04_verbovka.mp4",
-          "pause_at": 70,
+          "pause_at": 69,
           "choice_timeout": 30,
           "choices": [
             {
