@@ -14,14 +14,73 @@ if (window.visualViewport) {
 }
 
 // ============================================================
-//  УТИЛИТА: получить URL видео
-//  Если video — полная ссылка (http/https), используем её.
-//  Иначе — берём из локальной папки /uploads/
+//  КАЧЕСТВО ВИДЕО
 // ============================================================
-function resolveVideoUrl(video) {
-    if (!video) return '';
-    if (/^https?:\/\//i.test(video)) return video;
-    return `/uploads/${video}`;
+const QUALITY_LEVELS = [1080, 720, 480, 360, 144];
+const QUALITY_KEY = 'video_quality';
+
+let currentQuality = loadQualityPreference();
+
+function loadQualityPreference() {
+    try {
+        const raw = localStorage.getItem(QUALITY_KEY);
+        if (raw === 'auto') return 'auto';
+        const n = parseInt(raw, 10);
+        if (QUALITY_LEVELS.includes(n)) return n;
+        return 'auto';
+    } catch (e) { return 'auto'; }
+}
+
+function saveQualityPreference(q) {
+    try { localStorage.setItem(QUALITY_KEY, String(q)); } catch (e) {}
+}
+
+function autoQuality() {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const et = conn && conn.effectiveType;
+    const ua = navigator.userAgent || '';
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+    const isSmallScreen = window.innerWidth < 768;
+
+    if (et === 'slow-2g' || et === '2g') return 144;
+    if (et === '3g') return isMobile || isSmallScreen ? 360 : 480;
+    if (isMobile || isSmallScreen) return 720;
+    return 1080;
+}
+
+function effectiveQuality() {
+    return currentQuality === 'auto' ? autoQuality() : currentQuality;
+}
+
+function buildQualityChain(requested) {
+    const chain = [];
+    const startIdx = QUALITY_LEVELS.indexOf(requested);
+    if (startIdx === -1) {
+        return QUALITY_LEVELS.slice().concat(['base']);
+    }
+    for (let i = startIdx; i < QUALITY_LEVELS.length; i++) {
+        chain.push(QUALITY_LEVELS[i]);
+    }
+    chain.push('base');
+    return chain;
+}
+
+function buildVideoUrl(baseName, quality) {
+    if (!baseName) return '';
+    if (/^https?:\/\//i.test(baseName)) return baseName;
+    const stem = baseName.replace(/\.mp4$/i, '');
+    if (quality === 'base') return `/uploads/${baseName}`;
+    return `/uploads/${stem}_${quality}.mp4`;
+}
+
+function updateQualityLabel() {
+    const el = document.getElementById('qualityLabel');
+    if (!el) return;
+    if (currentQuality === 'auto') {
+        el.textContent = 'AUTO';
+    } else {
+        el.textContent = currentQuality + 'p';
+    }
 }
 
 // ============================================================
@@ -44,6 +103,9 @@ const playPauseBtn = document.getElementById('playPauseBtn');
 const volumeBtn = document.getElementById('volumeBtn');
 const volumeSlider = document.getElementById('volumeSlider');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const qualityBtn = document.getElementById('qualityBtn');
+const qualityPopup = document.getElementById('qualityPopup');
+const qualityPopupList = document.getElementById('qualityPopupList');
 const choiceCountdownEl = document.getElementById('choiceCountdown');
 const countdownNumberEl = document.getElementById('countdownNumber');
 const countdownRingEl = document.getElementById('countdownRing');
@@ -73,7 +135,7 @@ const sceneChoiceState = {
 const STORAGE_KEY = 'podruga_progress';
 
 // ============================================================
-//  ЛОКАЛЬНОЕ СОХРАНЕНИЕ
+//  СОХРАНЕНИЕ
 // ============================================================
 function saveProgress() {
     try {
@@ -83,14 +145,12 @@ function saveProgress() {
         }));
     } catch (e) {}
 }
-
 function loadProgress() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
 }
-
 function clearProgress() {
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
 }
@@ -110,7 +170,7 @@ function getActiveVideo() {
 }
 
 // ============================================================
-//  RESET CHOICE STATE
+//  CHOICE STATE
 // ============================================================
 function resetChoiceState() {
     if (sceneChoiceState.timeoutId) {
@@ -141,6 +201,48 @@ function computeChoicePauseAt(scene) {
 }
 
 // ============================================================
+//  ЗАГРУЗКА ВИДЕО С ФОЛБЭКОМ ПО КАЧЕСТВУ
+// ============================================================
+function loadVideoWithFallback(baseName, opts = {}) {
+    const chain = buildQualityChain(effectiveQuality());
+    let index = 0;
+    let resolved = false;
+    const targetVideo = opts.isInsert ? insertPlayer : video;
+
+    function tryNext() {
+        if (index >= chain.length) {
+            console.warn('Не удалось загрузить ни одно качество для', baseName);
+            if (typeof opts.onAllFailed === 'function') opts.onAllFailed();
+            return;
+        }
+        const q = chain[index++];
+        const url = buildVideoUrl(baseName, q);
+        console.log(`[quality] ${baseName} → ${q} (${url})`);
+
+        targetVideo.src = url;
+        targetVideo.load();
+
+        const onError = () => {
+            targetVideo.removeEventListener('error', onError);
+            if (resolved) return;
+            console.warn(`[quality] ${q} не загрузилось, пробуем ниже`);
+            tryNext();
+        };
+        targetVideo.addEventListener('error', onError);
+
+        const onLoadedData = () => {
+            targetVideo.removeEventListener('error', onError);
+            targetVideo.removeEventListener('loadeddata', onLoadedData);
+            if (resolved) return;
+            resolved = true;
+            if (typeof opts.onSuccess === 'function') opts.onSuccess(q);
+        };
+        targetVideo.addEventListener('loadeddata', onLoadedData, { once: true });
+    }
+    tryNext();
+}
+
+// ============================================================
 //  ЗАГРУЗКА СЦЕНЫ
 // ============================================================
 async function loadScene(sceneId) {
@@ -156,11 +258,14 @@ async function loadScene(sceneId) {
         endMessage.classList.add('hidden');
 
         if (scene.video && scene.video.trim() !== '') {
-            video.src = resolveVideoUrl(scene.video);
-            video.load();
-            video.play().catch(() => {
-                controls.classList.add('visible');
-                player.classList.add('show-controls');
+            loadVideoWithFallback(scene.video, {
+                isInsert: false,
+                onSuccess: () => {
+                    video.play().catch(() => {
+                        controls.classList.add('visible');
+                        player.classList.add('show-controls');
+                    });
+                }
             });
         } else {
             video.removeAttribute('src');
@@ -168,7 +273,6 @@ async function loadScene(sceneId) {
         }
 
         buildChoiceAreas(scene);
-
         sceneChoiceState.pauseAt = computeChoicePauseAt(scene);
         sceneChoiceState.timeoutDuration = typeof scene.choice_timeout === 'number'
             ? scene.choice_timeout
@@ -176,7 +280,6 @@ async function loadScene(sceneId) {
 
         conditionalOverlaysEl.innerHTML = '';
         lastTime = 0;
-
         saveProgress();
     } catch (err) {
         console.error(err);
@@ -214,7 +317,7 @@ function buildChoiceAreas(scene) {
 }
 
 // ============================================================
-//  ТРИГГЕР ПАУЗЫ ДЛЯ ВЫБОРА
+//  ТРИГГЕР ВЫБОРА
 // ============================================================
 function triggerChoicePause() {
     if (!currentScene || !currentScene.choices || sceneChoiceState.resolved) return;
@@ -245,6 +348,98 @@ function triggerChoicePause() {
 }
 
 // ============================================================
+//  ПРОИГРЫВАНИЕ ВСТАВКИ (без resume — просто "доиграть и resolve")
+// ============================================================
+function playInsertOnly(videoFile) {
+    return new Promise((resolve) => {
+        isInsertPlaying = true;
+        playPauseBtn.classList.add('playing');
+        currentTimeEl.textContent = '0:00';
+        durationEl.textContent = '0:00';
+        timelineProgress.style.width = '0%';
+        timelineThumb.style.left = '0%';
+        timelineBuffered.style.width = '0%';
+
+        video.pause();
+        insertPlayer.classList.add('active');
+        insertPlayer.currentTime = 0;
+
+        let resolved = false;
+
+        const finish = () => {
+            if (resolved) return;
+            resolved = true;
+            insertPlayer.removeEventListener('ended', onEnded);
+            insertPlayer.removeEventListener('error', onError);
+            insertPlayer.classList.remove('active');
+            insertPlayer.removeAttribute('src');
+            insertPlayer.load();
+
+            isInsertPlaying = false;
+            playPauseBtn.classList.remove('playing');
+            resolve();
+        };
+
+        const onEnded = finish;
+        const onError = () => {
+            console.warn('Вставка не загрузилась, пропускаем:', videoFile);
+            finish();
+        };
+
+        insertPlayer.addEventListener('ended', onEnded);
+        insertPlayer.addEventListener('error', onError);
+
+        loadVideoWithFallback(videoFile, {
+            isInsert: true,
+            onSuccess: () => {
+                insertPlayer.play().catch(() => {
+                    insertPlayer.muted = true;
+                    insertPlayer.play().catch(() => onError());
+                });
+            },
+            onAllFailed: () => onError()
+        });
+
+        setTimeout(() => {
+            if (!resolved && insertPlayer.readyState < 2) {
+                console.warn('Вставка не готова за 5 секунд, пропускаем');
+                finish();
+            }
+        }, 5000);
+    });
+}
+
+// ============================================================
+//  ЛОГИКА ПОСЛЕ ВСТАВКИ
+//  Если resume_at задан — возвращаемся в текущую сцену.
+//  Если нет — идём в next (свой или сцены).
+// ============================================================
+async function continueAfterInsert(afterChoice, fallbackNext) {
+    if (afterChoice.resume_at != null) {
+        // Возврат в текущую сцену
+        const dur = video.duration || 0;
+        if (dur > 0 && afterChoice.resume_at >= dur - 0.5) {
+            video.currentTime = dur - 0.1;
+            setTimeout(() => onSceneEnded(), 150);
+            return;
+        }
+        video.currentTime = Math.min(afterChoice.resume_at, dur > 0 ? dur - 0.1 : afterChoice.resume_at);
+        video.play().catch(() => {});
+        showControls();
+        return;
+    }
+
+    // Прямой переход в следующую сцену
+    if (fallbackNext) {
+        await loadScene(fallbackNext);
+        return;
+    }
+
+    // Если next нигде не задан — считаем сцену завершённой
+    onSceneEnded();
+}
+
+// ============================================================
 //  ОБРАБОТКА ВЫБОРА
 // ============================================================
 async function handleChoice(choice) {
@@ -260,11 +455,12 @@ async function handleChoice(choice) {
     choiceCountdownEl.classList.add('hidden');
     overlay.querySelectorAll('.area').forEach(el => el.style.display = 'none');
 
+    // Определяем, куда идти
+    const nextAfterInsert = choice.next || (currentScene && currentScene.next) || null;
+
     if (choice.after_choice && choice.after_choice.video) {
-        await playInsert(
-            choice.after_choice.video,
-            choice.after_choice.resume_at != null ? choice.after_choice.resume_at : video.currentTime
-        );
+        await playInsertOnly(choice.after_choice.video);
+        await continueAfterInsert(choice.after_choice, nextAfterInsert);
     } else if (choice.next) {
         await loadScene(choice.next);
     } else if (choice.resume_at != null) {
@@ -290,12 +486,11 @@ async function handleNoChoice() {
     overlay.querySelectorAll('.area').forEach(el => el.style.display = 'none');
 
     const nc = (currentScene && currentScene.no_choice) || {};
+    const nextAfterInsert = nc.next || (currentScene && currentScene.next) || null;
 
     if (nc.after_choice && nc.after_choice.video) {
-        await playInsert(
-            nc.after_choice.video,
-            nc.after_choice.resume_at != null ? nc.after_choice.resume_at : video.currentTime
-        );
+        await playInsertOnly(nc.after_choice.video);
+        await continueAfterInsert(nc.after_choice, nextAfterInsert);
     } else if (nc.next) {
         await loadScene(nc.next);
     } else if (nc.resume_at != null) {
@@ -325,76 +520,24 @@ function onSceneEnded() {
 }
 
 // ============================================================
-//  ВСТАВКИ
+//  УСЛОВНЫЕ ОВЕРЛЕИ
 // ============================================================
-function playInsert(videoFile, resumeAt) {
-    return new Promise((resolve) => {
-        const src = resolveVideoUrl(videoFile);
-        insertPlayer.src = src;
-        insertPlayer.classList.add('active');
-        insertPlayer.currentTime = 0;
-
-        isInsertPlaying = true;
-        playPauseBtn.classList.add('playing');
-        currentTimeEl.textContent = '0:00';
-        durationEl.textContent = '0:00';
-        timelineProgress.style.width = '0%';
-        timelineThumb.style.left = '0%';
-        timelineBuffered.style.width = '0%';
-
-        video.pause();
-
-        let resolved = false;
-        const finish = () => {
-            if (resolved) return;
-            resolved = true;
-            insertPlayer.removeEventListener('ended', finish);
-            insertPlayer.removeEventListener('error', onError);
-            insertPlayer.classList.remove('active');
-            insertPlayer.removeAttribute('src');
-            insertPlayer.load();
-
-            isInsertPlaying = false;
-            playPauseBtn.classList.remove('playing');
-
-            const dur = video.duration || 0;
-
-            if (resumeAt != null && dur > 0 && resumeAt >= dur - 0.5) {
-                video.currentTime = dur - 0.1;
-                setTimeout(() => onSceneEnded(), 150);
-                resolve();
-                return;
-            }
-
-            if (resumeAt != null) {
-                video.currentTime = Math.min(resumeAt, dur > 0 ? dur - 0.1 : resumeAt);
-            }
-            video.play().catch(() => {});
-            showControls();
-            resolve();
-        };
-
-        const onError = (e) => {
-            console.warn('Вставка не загрузилась, пропускаем:', src);
-            finish();
-        };
-
-        insertPlayer.addEventListener('ended', finish);
-        insertPlayer.addEventListener('error', onError);
-
-        insertPlayer.play().catch(() => {
-            insertPlayer.muted = true;
-            insertPlayer.play().catch(() => {
-                onError(new Error('Не удалось запустить вставку'));
-            });
-        });
-
-        setTimeout(() => {
-            if (!resolved && insertPlayer.readyState < 2) {
-                console.warn('Вставка не готова за 5 секунд, пропускаем');
-                finish();
-            }
-        }, 5000);
+function updateConditionalOverlays(cur) {
+    if (!currentScene || !currentScene.conditional_overlays) return;
+    currentScene.conditional_overlays.forEach((ov, idx) => {
+        const start = ov.at_time || 0;
+        const end = start + (ov.duration || 3);
+        const inWindow = cur >= start && cur <= end;
+        let el = conditionalOverlaysEl.querySelector(`[data-ov-idx="${idx}"]`);
+        if (inWindow && !el) {
+            el = document.createElement('div');
+            el.className = 'cond-overlay type-' + (ov.type || 'text');
+            el.dataset.ovIdx = idx;
+            el.textContent = ov.text || '';
+            conditionalOverlaysEl.appendChild(el);
+        } else if (!inWindow && el) {
+            el.remove();
+        }
     });
 }
 
@@ -421,7 +564,6 @@ function onActiveTimeUpdate() {
             && cur >= sceneChoiceState.pauseAt) {
             triggerChoicePause();
         }
-
         if (!sceneChoiceState.resolved) {
             updateConditionalOverlays(cur);
         }
@@ -430,28 +572,19 @@ function onActiveTimeUpdate() {
 }
 
 function onActiveLoadedMetadata() {
-    const v = getActiveVideo();
-    durationEl.textContent = formatTime(v.duration);
+    durationEl.textContent = formatTime(getActiveVideo().duration);
 }
 
 function onActiveProgress() {
     const v = getActiveVideo();
     if (v.buffered.length > 0 && v.duration) {
         const bufferedEnd = v.buffered.end(v.buffered.length - 1);
-        const percent = (bufferedEnd / v.duration) * 100;
-        timelineBuffered.style.width = percent + '%';
+        timelineBuffered.style.width = ((bufferedEnd / v.duration) * 100) + '%';
     }
 }
 
-function onActivePlay() {
-    playPauseBtn.classList.add('playing');
-    showControls();
-}
-
-function onActivePause() {
-    playPauseBtn.classList.remove('playing');
-    showControls();
-}
+function onActivePlay() { playPauseBtn.classList.add('playing'); showControls(); }
+function onActivePause() { playPauseBtn.classList.remove('playing'); showControls(); }
 
 function showBuffering() { bufferingSpinner.classList.add('visible'); }
 function hideBuffering() { bufferingSpinner.classList.remove('visible'); }
@@ -479,29 +612,6 @@ insertPlayer.addEventListener('progress', onActiveProgress);
 insertPlayer.addEventListener('play', onActivePlay);
 insertPlayer.addEventListener('pause', onActivePause);
 bindBufferingEvents(insertPlayer);
-
-// ============================================================
-//  УСЛОВНЫЕ ОВЕРЛЕИ
-// ============================================================
-function updateConditionalOverlays(cur) {
-    if (!currentScene || !currentScene.conditional_overlays) return;
-
-    currentScene.conditional_overlays.forEach((ov, idx) => {
-        const start = ov.at_time || 0;
-        const end = start + (ov.duration || 3);
-        const inWindow = cur >= start && cur <= end;
-        let el = conditionalOverlaysEl.querySelector(`[data-ov-idx="${idx}"]`);
-        if (inWindow && !el) {
-            el = document.createElement('div');
-            el.className = 'cond-overlay type-' + (ov.type || 'text');
-            el.dataset.ovIdx = idx;
-            el.textContent = ov.text || '';
-            conditionalOverlaysEl.appendChild(el);
-        } else if (!inWindow && el) {
-            el.remove();
-        }
-    });
-}
 
 // ============================================================
 //  PLAY / PAUSE
@@ -557,6 +667,76 @@ function updateVolumeIcon() {
     else volumeBtn.classList.add('volume-high');
 }
 updateVolumeIcon();
+
+// ============================================================
+//  КАЧЕСТВО
+// ============================================================
+function buildQualityPopup() {
+    qualityPopupList.innerHTML = '';
+    const items = [
+        { value: 'auto', label: 'Авто', badge: currentQuality === 'auto' ? `${autoQuality()}p` : null },
+        { value: 1080, label: '1080p', badge: 'Full HD' },
+        { value: 720,  label: '720p',  badge: 'HD' },
+        { value: 480,  label: '480p',  badge: null },
+        { value: 360,  label: '360p',  badge: null },
+        { value: 144,  label: '144p',  badge: 'Эконом' }
+    ];
+    items.forEach(it => {
+        const div = document.createElement('div');
+        div.className = 'quality-item' + (currentQuality === it.value ? ' active' : '');
+        div.dataset.value = it.value;
+        div.innerHTML = `
+            <span>${it.label}</span>
+            ${it.badge ? `<span class="q-badge">${it.badge}</span>` : ''}
+        `;
+        div.addEventListener('click', () => {
+            setQuality(it.value);
+            qualityPopup.classList.add('hidden');
+        });
+        qualityPopupList.appendChild(div);
+    });
+}
+
+function setQuality(q) {
+    currentQuality = q;
+    saveQualityPreference(q);
+    updateQualityLabel();
+    buildQualityPopup();
+
+    if (currentScene && currentScene.video) {
+        const time = video.currentTime;
+        const wasPlaying = !video.paused && !sceneChoiceState.triggered;
+        loadVideoWithFallback(currentScene.video, {
+            isInsert: false,
+            onSuccess: () => {
+                video.currentTime = time;
+                if (wasPlaying) video.play().catch(() => {});
+            }
+        });
+    }
+}
+
+qualityBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    buildQualityPopup();
+    qualityPopup.classList.toggle('hidden');
+    showControls();
+});
+
+document.addEventListener('click', (e) => {
+    if (!qualityPopup.classList.contains('hidden') &&
+        !qualityPopup.contains(e.target) &&
+        !qualityBtn.contains(e.target)) {
+        qualityPopup.classList.add('hidden');
+    }
+});
+
+if (navigator.connection) {
+    navigator.connection.addEventListener('change', () => {
+        if (currentQuality === 'auto') updateQualityLabel();
+    });
+}
+updateQualityLabel();
 
 // ============================================================
 //  FULLSCREEN
